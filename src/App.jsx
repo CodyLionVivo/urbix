@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from "react";
 import {
   MapPin, Clock, Wallet, Footprints, ArrowLeftRight, Accessibility,
-  ShieldCheck, AlertTriangle, Bus, Car, Bike, MessageCircle, Users,
-  Star, ChevronRight, ChevronLeft, Check, X, Info, Calendar, Home,
-  Map as MapIcon, Sparkles, Send, TrendingUp, TrendingDown, HelpCircle,
+  ShieldCheck, AlertTriangle, Bus, Car, Bike, Users,
+  Star, ChevronLeft, Check, X, Info, Calendar, Home,
+  Map as MapIcon, Sparkles, Send, TrendingUp, HelpCircle,
   RotateCcw, Zap, Plus, ThumbsUp, CircleDot, ArrowRight, Award,
   BookOpen, Navigation, Flag, PlayCircle, ShieldAlert, ListChecks,
 } from "lucide-react";
@@ -45,13 +45,28 @@ const F = {
   mono: "'IBM Plex Mono', monospace",
 };
 
-const APP_MODE = "mock"; // "mock" | "integrated"
-
 /* ============================================================
    2. UTILIDADES
    ============================================================ */
 const fmtSoles = (n) => `S/ ${Number(n).toFixed(2).replace(/\.00$/, "")}`;
 const fmtMin = (min, max) => (min === max ? `${min} min` : `${min}–${max} min`);
+const routeCostMin = (route) => route.costMin ?? route.cost;
+const routeCostMax = (route) => route.costMax ?? route.cost;
+const fmtRouteCost = (route) => {
+  const min = routeCostMin(route);
+  const max = routeCostMax(route);
+  return min === max ? fmtSoles(min) : `${fmtSoles(min)}–${fmtSoles(max)}`;
+};
+
+const DEMO_CORRIDOR = {
+  origin: "San Juan de Lurigancho",
+  destination: "San Isidro",
+};
+
+const normalizeText = (value) => String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+const isDemoTrip = (trip) =>
+  normalizeText(trip.origin) === normalizeText(DEMO_CORRIDOR.origin) &&
+  normalizeText(trip.destination) === normalizeText(DEMO_CORRIDOR.destination);
 
 const TODAY = new Date("2026-08-11T09:00:00");
 const daysSince = (dateStr) => {
@@ -321,7 +336,7 @@ function rankRoutes(routes, preferences) {
 
 function applyFilters(routes, filters) {
   return routes.filter((r) => {
-    if (filters.maxBudget != null && r.cost > filters.maxBudget) return false;
+    if (filters.maxBudget != null && routeCostMax(r) > filters.maxBudget) return false;
     if (filters.maxWalk != null && r.walkingMeters > filters.maxWalk) return false;
     if (filters.maxTransfers != null && r.transfers > filters.maxTransfers) return false;
     if (filters.needsAccessible && !r.accessible) return false;
@@ -331,8 +346,9 @@ function applyFilters(routes, filters) {
 
 function exceededReasonSingle(route, filters) {
   const fails = [];
-  if (filters.maxBudget != null && route.cost > filters.maxBudget) {
-    fails.push({ key: "budget", excess: route.cost - filters.maxBudget, margin: 5, label: `supera tu presupuesto por ${fmtSoles(route.cost - filters.maxBudget)}` });
+  const routeMaxCost = routeCostMax(route);
+  if (filters.maxBudget != null && routeMaxCost > filters.maxBudget) {
+    fails.push({ key: "budget", excess: routeMaxCost - filters.maxBudget, margin: 5, label: `puede superar tu presupuesto hasta por ${fmtSoles(routeMaxCost - filters.maxBudget)}` });
   }
   if (filters.maxWalk != null && route.walkingMeters > filters.maxWalk) {
     fails.push({ key: "walk", excess: route.walkingMeters - filters.maxWalk, margin: 250, label: `implica ${route.walkingMeters - filters.maxWalk} m más de caminata de la tolerada` });
@@ -357,7 +373,8 @@ const DIM_LABEL = {
 };
 
 function tradeoffSentence(route, reference) {
-  if (!reference || reference.id === route.id) return "Es tu única alternativa que cumple lo declarado.";
+  if (!reference) return "Es una alternativa disponible para este viaje.";
+  if (reference.id === route.id) return "Es la opción más rápida; no sacrificas tiempo frente a las demás alternativas.";
   const dims = Object.keys(DIM_LABEL);
   let bestGain = null;
   let worstLoss = null;
@@ -392,7 +409,7 @@ function generateExplanation(route, allRoutes) {
 
 function conditionsChecklist(route, filters) {
   const items = [];
-  if (filters.maxBudget != null) items.push({ ok: route.cost <= filters.maxBudget, label: `Presupuesto máximo ${fmtSoles(filters.maxBudget)}` });
+  if (filters.maxBudget != null) items.push({ ok: routeCostMax(route) <= filters.maxBudget, label: `Presupuesto máximo ${fmtSoles(filters.maxBudget)}` });
   if (filters.maxWalk != null) items.push({ ok: route.walkingMeters <= filters.maxWalk, label: `Caminata máxima ${filters.maxWalk} m` });
   if (filters.maxTransfers != null) items.push({ ok: route.transfers <= filters.maxTransfers, label: `Máximo ${filters.maxTransfers} transbordo(s)` });
   if (filters.needsAccessible) items.push({ ok: route.accessible, label: "Ruta accesible" });
@@ -609,7 +626,7 @@ function RouteMap({ route }) {
   );
 }
 
-function RouteCard({ route, reference, allInList, onSelect, onDetail, isNearMiss, nearMissReason, isFavorite, onToggleFavorite }) {
+function RouteCard({ route, reference, onSelect, onDetail, isNearMiss, nearMissReason, isFavorite, onToggleFavorite }) {
   return (
     <div style={{ background: T.paperDim, border: `1px solid ${isNearMiss ? T.line : T.line}`, borderRadius: 16, padding: 18, marginBottom: 14, opacity: isNearMiss ? 0.85 : 1 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
@@ -628,7 +645,7 @@ function RouteCard({ route, reference, allInList, onSelect, onDetail, isNearMiss
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 12 }}>
         <Metric icon={Clock} value={fmtMin(route.durationMin, route.durationMax)} color={T.tiempo} />
-        <Metric icon={Wallet} value={fmtSoles(route.cost)} color={T.costo} />
+        <Metric icon={Wallet} value={fmtRouteCost(route)} color={T.costo} />
         <Metric icon={Footprints} value={`${route.walkingMeters} m`} color={T.seguridad} />
         <Metric icon={ArrowLeftRight} value={`${route.transfers}`} color={T.comodidad} />
       </div>
@@ -663,18 +680,19 @@ function Metric({ icon: Icon, value, color }) {
   );
 }
 
-function QuickConfirm({ route, onSubmitted }) {
+function QuickConfirm({ onSubmitted }) {
   const [answers, setAnswers] = useState({ stillWorks: null, waitMatched: null, costMatched: null });
   const [sent, setSent] = useState(false);
+  const canSubmit = Object.values(answers).some((answer) => answer !== null);
   const set = (k, v) => setAnswers((a) => ({ ...a, [k]: v }));
   const YesNo = ({ k, label }) => (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0" }}>
       <span style={{ fontFamily: F.body, fontSize: 13, color: T.ink }}>{label}</span>
       <div style={{ display: "flex", gap: 6 }}>
-        <button onClick={() => set(k, true)} style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${answers[k] === true ? T.seguridad : T.line}`, background: answers[k] === true ? "rgba(34,214,154,0.15)" : T.card2, cursor: "pointer" }}>
+        <button aria-label={`${label}: sí`} onClick={() => set(k, true)} style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${answers[k] === true ? T.seguridad : T.line}`, background: answers[k] === true ? "rgba(34,214,154,0.15)" : T.card2, cursor: "pointer" }}>
           <Check size={14} color={answers[k] === true ? T.seguridad : T.inkSoft} />
         </button>
-        <button onClick={() => set(k, false)} style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${answers[k] === false ? T.alerta : T.line}`, background: answers[k] === false ? "rgba(240,82,82,0.15)" : T.card2, cursor: "pointer" }}>
+        <button aria-label={`${label}: no`} onClick={() => set(k, false)} style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${answers[k] === false ? T.alerta : T.line}`, background: answers[k] === false ? "rgba(240,82,82,0.15)" : T.card2, cursor: "pointer" }}>
           <X size={14} color={answers[k] === false ? T.alerta : T.inkSoft} />
         </button>
       </div>
@@ -693,7 +711,7 @@ function QuickConfirm({ route, onSubmitted }) {
       <YesNo k="waitMatched" label="¿El tiempo de espera fue similar?" />
       <YesNo k="costMatched" label="¿El costo fue similar?" />
       <div style={{ marginTop: 10 }}>
-        <Btn variant="primary" small full onClick={() => { setSent(true); onSubmitted && onSubmitted(answers); }}>
+        <Btn variant="primary" small full disabled={!canSubmit} onClick={() => { setSent(true); if (onSubmitted) onSubmitted(answers); }}>
           Enviar confirmación
         </Btn>
       </div>
@@ -780,6 +798,8 @@ function PlanningScreen({ trip, setTrip, onPersonalize, onSearch }) {
           <input type="time" style={inputStyle} value={trip.time} onChange={(e) => setTrip({ ...trip, time: e.target.value })} />
         </Field>
 
+        <Disclaimer>Esta versión funciona con datos locales del corredor San Juan de Lurigancho → San Isidro. La fecha y hora preparan el flujo, pero todavía no consultan una fuente en vivo.</Disclaimer>
+
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 22 }}>
           <Btn variant="primary" full icon={Sparkles} onClick={onSearch}>Ver resultados</Btn>
           <Btn variant="secondary" full icon={Zap} onClick={onPersonalize}>Personalizar restricciones y preferencias</Btn>
@@ -820,7 +840,7 @@ function PersonalizeScreen({ filters, setFilters, preferences, setPreferences, p
               { value: "costo", label: "Priorizar menos costo" },
               { value: "caminata", label: "Priorizar poca caminata" },
               { value: "transbordos", label: "Priorizar pocos transbordos" },
-              { value: "confiable", label: "Priorizar confiabilidad" },
+              { value: "confiable", label: "Priorizar tiempos predecibles" },
             ]}
           />
         </Section>
@@ -851,11 +871,13 @@ function ResultsScreen({ trip, filters, preferences, allRoutes, incidents, activ
     [allRoutes, incidents, activeIncidents]
   );
 
-  const strictUnranked = applyFilters(withIncidents, filters);
+  const corridorAvailable = isDemoTrip(trip);
+  const candidateRoutes = corridorAvailable ? withIncidents : [];
+  const strictUnranked = applyFilters(candidateRoutes, filters);
   const strict = rankRoutes(strictUnranked, preferences);
-  const fastest = [...withIncidents].sort((a, b) => a.durationMin - b.durationMin)[0];
+  const fastest = [...candidateRoutes].sort((a, b) => a.durationMin - b.durationMin)[0];
 
-  const nearMiss = withIncidents
+  const nearMiss = candidateRoutes
     .filter((r) => !strict.find((s) => s.id === r.id))
     .map((r) => ({ route: r, reason: exceededReasonSingle(r, filters) }))
     .filter((x) => x.reason);
@@ -873,8 +895,12 @@ function ResultsScreen({ trip, filters, preferences, allRoutes, incidents, activ
       />
       <div style={{ padding: "6px 20px" }}>
         <p style={{ fontFamily: F.body, fontSize: 13, color: T.inkSoft, margin: "0 0 14px" }}>
-          <MapPin size={12} style={{ verticalAlign: -1 }} /> {trip.origin || "San Juan de Lurigancho"} → {trip.destination || "San Isidro"}
+          <MapPin size={12} style={{ verticalAlign: -1 }} /> {trip.origin || "Origen no definido"} → {trip.destination || "Destino no definido"}
         </p>
+
+        {!corridorAvailable && (
+          <Disclaimer>Esta demo solo tiene rutas locales para {DEMO_CORRIDOR.origin} → {DEMO_CORRIDOR.destination}. Ajusta el origen y destino para consultar ese corredor.</Disclaimer>
+        )}
 
         <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
           <Chip active={preferences.includes("tiempo")} onClick={() => onQuickPriority("tiempo")}><Clock size={12} style={{ verticalAlign: -1, marginRight: 4 }} />Más rápido</Chip>
@@ -883,7 +909,7 @@ function ResultsScreen({ trip, filters, preferences, allRoutes, incidents, activ
         </div>
 
         <Section title={`Rutas que cumplen (${strict.length})`} icon={ShieldCheck}>
-          {strict.length === 0 && <p style={{ fontFamily: F.body, fontSize: 13, color: T.inkSoft }}>Ninguna ruta cumple exactamente tus condiciones — revisa las alternativas cercanas debajo.</p>}
+          {strict.length === 0 && <p style={{ fontFamily: F.body, fontSize: 13, color: T.inkSoft }}>{corridorAvailable ? "Ninguna ruta cumple exactamente tus condiciones — revisa las alternativas cercanas debajo." : "No hay rutas locales para este origen y destino todavía."}</p>}
           {strict.map((r) => (
             <RouteCard
               key={r.id}
@@ -944,7 +970,7 @@ function ResultsScreen({ trip, filters, preferences, allRoutes, incidents, activ
   );
 }
 
-function DetailScreen({ route, filters, allRoutes, incidents, activeIncidents, onToggleIncident, onBack, onFeedback, onStartTrip }) {
+function DetailScreen({ route, filters, allRoutes, incidents, activeIncidents, onToggleIncident, onBack, onFeedback, onStartTrip, onConfirmRoute }) {
   const checklist = conditionsChecklist(route, filters);
   const notes = sensitivityNotes(route, filters, allRoutes);
   const inc = incidents.find((i) => i.routeId === route.id);
@@ -1037,11 +1063,11 @@ function DetailScreen({ route, filters, allRoutes, incidents, activeIncidents, o
         )}
 
         <Section title="Confirmación rápida" icon={ShieldCheck}>
-          <QuickConfirm route={route} />
+          <QuickConfirm onSubmitted={onConfirmRoute} />
         </Section>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <Btn variant="primary" full icon={PlayCircle} onClick={() => onStartTrip(route)}>Iniciar viaje — guía en tiempo real</Btn>
+          <Btn variant="primary" full icon={PlayCircle} onClick={() => onStartTrip(route)}>Iniciar guía de viaje</Btn>
           <Btn variant="secondary" full icon={Send} onClick={() => onFeedback(route)}>Registrar cómo fue mi viaje</Btn>
         </div>
       </div>
@@ -1063,7 +1089,7 @@ function GuidingScreen({ route, allRoutes, incidents, activeIncidents, onFinish,
 
   return (
     <div style={{ paddingBottom: 40 }}>
-      <TopBar title="Guía en tiempo real" onBack={onBack} />
+      <TopBar title="Guía de viaje" onBack={onBack} />
       <div style={{ padding: "6px 20px" }}>
         <Disclaimer>Escenario simulado para esta demo — no hay GPS real. Avanza los tramos manualmente para ver cómo cambiaría la guía.</Disclaimer>
 
@@ -1159,7 +1185,7 @@ function FeedbackScreen({ route, onBack, onSubmit }) {
         <Field label="Barreras encontradas">
           <ChipRow options={barrierOptions} value={form.barriers} onChange={(v) => setForm({ ...form, barriers: v })} />
         </Field>
-        <Btn variant="primary" full icon={Send} onClick={() => { setSent(true); onSubmit && onSubmit(form); }}>Enviar</Btn>
+        <Btn variant="primary" full icon={Send} onClick={() => { setSent(true); if (onSubmit) onSubmit(form); }}>Enviar</Btn>
       </div>
     </div>
   );
@@ -1215,6 +1241,7 @@ function CommunityScreen({ communityRoutes, contributions, onAddContribution, re
               variant="primary"
               full
               icon={Send}
+              disabled={!form.origin.trim() || !form.destination.trim()}
               onClick={() => {
                 onAddContribution(form);
                 setForm({ origin: "", destination: "", description: "", type: [] });
@@ -1236,6 +1263,7 @@ function CommunityScreen({ communityRoutes, contributions, onAddContribution, re
                     <span style={{ fontFamily: F.body, fontSize: 13, color: T.ink, fontWeight: 600 }}>{c.origin} → {c.destination}</span>
                     <Badge tone={st.tone}>{st.label}</Badge>
                   </div>
+                  {c.description && <p style={{ fontFamily: F.body, fontSize: 12, color: T.inkSoft, margin: "8px 0 0", lineHeight: 1.5 }}>{c.description}</p>}
                 </div>
               );
             })}
@@ -1338,7 +1366,7 @@ function MyWeekScreen({ recurring, favorites, allRoutes }) {
 
 function DemoPitchView({ routes, onClose }) {
   const ranked = rankRoutes(routes, []);
-  const fastest = ranked[0];
+  const fastest = [...routes].sort((a, b) => a.durationMin - b.durationMin)[0];
   return (
     <div style={{ position: "fixed", inset: 0, background: T.paper, zIndex: 50, overflowY: "auto" }}>
       <div style={{ padding: 24, maxWidth: 480, margin: "0 auto" }}>
@@ -1359,7 +1387,7 @@ function DemoPitchView({ routes, onClose }) {
             <h3 style={{ fontFamily: F.display, fontWeight: 700, fontSize: 16, color: T.ink, margin: "0 0 8px" }}>{r.name}</h3>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginBottom: 10 }}>
               <Metric icon={Clock} value={fmtMin(r.durationMin, r.durationMax)} color={T.tiempo} />
-              <Metric icon={Wallet} value={fmtSoles(r.cost)} color={T.costo} />
+              <Metric icon={Wallet} value={fmtRouteCost(r)} color={T.costo} />
               <Metric icon={Footprints} value={`${r.walkingMeters} m`} color={T.seguridad} />
               <Metric icon={ArrowLeftRight} value={`${r.transfers}`} color={T.comodidad} />
             </div>
@@ -1426,8 +1454,16 @@ export default function App() {
   };
 
   const addContribution = (form) => {
-    setContributions((c) => [...c, { origin: form.origin || "—", destination: form.destination || "—", status: "received" }]);
-    setReputationPoints((p) => p + 5);
+    setContributions((c) => [
+      ...c,
+      {
+        origin: form.origin || "—",
+        destination: form.destination || "—",
+        description: form.description || "",
+        type: form.type || "new",
+        status: "pending",
+      },
+    ]);
   };
 
   const submitFeedback = (route, form) => {
@@ -1447,7 +1483,6 @@ export default function App() {
       },
       ...prev,
     ]);
-    setReputationPoints((p) => p + 5);
   };
 
   const confirmReport = (id) => {
@@ -1530,6 +1565,7 @@ export default function App() {
               onBack={() => go("results")}
               onFeedback={(r) => { setSelectedRoute(r); go("feedback"); }}
               onStartTrip={(r) => { setSelectedRoute(r); go("guiding"); }}
+              onConfirmRoute={() => setReputationPoints((p) => p + 1)}
             />
           )}
 
